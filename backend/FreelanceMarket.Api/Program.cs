@@ -4,8 +4,11 @@ using FluentValidation;
 using FreelanceMarket.Api.Auth;
 using FreelanceMarket.Api.Endpoints;
 using FreelanceMarket.Application.Services;
+using FreelanceMarket.Application.Services.Observers;
+using FreelanceMarket.Application.Services.Strategies;
 using FreelanceMarket.Application.Validators;
 using FreelanceMarket.Domain.Interfaces;
+using FreelanceMarket.Domain.Patterns;
 using FreelanceMarket.Infrastructure.Data;
 using FreelanceMarket.Infrastructure.Adapters;
 using FreelanceMarket.Infrastructure.Repositories;
@@ -38,6 +41,25 @@ builder.Services.AddScoped<IProposalService, ProposalService>();
 builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddSingleton<IJwtService, JwtService>();
 builder.Services.AddScoped<IExternalFreelancerProfileAdapter, GithubFreelancerProfileAdapter>();
+
+// Pattern: Observer
+builder.Services.AddSingleton(_ => SessionStateManager.Instance);
+builder.Services.AddSingleton<IProjectStatusSubject, ProjectStatusPublisher>();
+builder.Services.AddSingleton<AuditLogObserver>();
+builder.Services.AddSingleton<IProjectObserver, NotificationObserver>();
+builder.Services.AddSingleton<IProjectObserver, SessionSyncObserver>();
+builder.Services.AddSingleton<IProjectObserver>(sp => sp.GetRequiredService<AuditLogObserver>());
+
+// Pattern: Strategy
+builder.Services.AddScoped<IProjectFilterStrategy, StatusFilterStrategy>();
+builder.Services.AddScoped<IProjectFilterStrategy, BudgetRangeFilterStrategy>();
+builder.Services.AddScoped<IProjectFilterStrategy, KeywordSearchStrategy>();
+builder.Services.AddScoped<IProjectFilterStrategy, SkillsFilterStrategy>();
+builder.Services.AddScoped<IProjectFilterStrategy, ProjectSortStrategy>();
+builder.Services.AddScoped<ProjectFilterContext>();
+
+// Pattern: Command
+builder.Services.AddSingleton<ProposalCommandInvoker>();
 
 // ─── FluentValidation ───
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
@@ -101,6 +123,12 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+
+var publisher = app.Services.GetRequiredService<IProjectStatusSubject>();
+foreach (var observer in app.Services.GetServices<IProjectObserver>())
+{
+    publisher.Subscribe(observer);
+}
 
 // ─── Middleware ───
 app.UseCors();

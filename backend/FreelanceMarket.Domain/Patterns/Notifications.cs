@@ -52,6 +52,18 @@ public class ProjectCompletedNotification : Notification
     }
 }
 
+public class ProjectCancelledNotification : Notification
+{
+    public Guid ProjectId { get; set; }
+    public ProjectCancelledNotification(Guid userId, Guid projectId, string projectTitle)
+    {
+        UserId = userId;
+        ProjectId = projectId;
+        Type = NotificationType.ProjectCancelled;
+        Message = $"Проект «{projectTitle}» был отменён";
+    }
+}
+
 public class ReviewReceivedNotification : Notification
 {
     public ReviewReceivedNotification(Guid userId, string fromUserName, int rating)

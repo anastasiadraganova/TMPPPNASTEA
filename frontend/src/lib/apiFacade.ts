@@ -6,7 +6,9 @@ import {
   LoginRequest,
   ProjectCategoryNode,
   ProjectDto,
+  ProjectSearchFilters,
   ProposalDto,
+  ProposalHistoryEntry,
   RegisterRequest,
   ReviewDto,
   UpdateProjectRequest,
@@ -69,8 +71,8 @@ class ApiFacade {
     this.clearToken();
   }
 
-  async getProjects(status?: string, maxBudget?: number): Promise<ProjectDto[]> {
-    return apiClient.getProjects(status, maxBudget);
+  async getProjects(filters: ProjectSearchFilters = {}): Promise<ProjectDto[]> {
+    return apiClient.getProjects(filters);
   }
 
   async getProjectById(id: string): Promise<ProjectDto> {
@@ -117,12 +119,22 @@ class ApiFacade {
     return apiClient.createProposal(projectId, { coverLetter, bidAmount });
   }
 
-  async acceptProposal(id: string): Promise<void> {
-    return apiClient.acceptProposal(id);
+  async acceptProposal(id: string): Promise<string> {
+    const result = await apiClient.acceptProposal(id);
+    return result.commandId;
   }
 
-  async rejectProposal(id: string): Promise<void> {
-    return apiClient.rejectProposal(id);
+  async rejectProposal(id: string): Promise<string> {
+    const result = await apiClient.rejectProposal(id);
+    return result.commandId;
+  }
+
+  async undoProposalCommand(commandId: string): Promise<void> {
+    return apiClient.undoProposalCommand(commandId);
+  }
+
+  async getProposalHistory(projectId: string): Promise<ProposalHistoryEntry[]> {
+    return apiClient.getProposalHistory(projectId);
   }
 
   async createReview(payload: CreateReviewRequest): Promise<ReviewDto> {

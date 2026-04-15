@@ -7,6 +7,7 @@ import { apiFacade } from '@/lib/apiFacade';
 import { useAuthStore } from '@/store/authStore';
 import { useThemeFactory } from '@/patterns/ThemeAbstractFactory';
 import { Button } from '@/patterns/ButtonFactory';
+import { ProposalActions } from '@/components/ProposalActions';
 
 const statusLabels: Record<string, string> = {
   Open: 'Открыт',
@@ -35,6 +36,10 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     loadProject();
   }, [projectId]);
+
+  function getErrorMessage(err: unknown, fallback: string): string {
+    return err instanceof Error ? err.message : fallback;
+  }
 
   async function loadProject() {
     setLoading(true);
@@ -67,19 +72,10 @@ export default function ProjectDetailPage() {
       setCoverLetter('');
       setBidAmount('');
       loadProject();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Не удалось отправить отклик'));
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleAcceptProposal(proposalId: string) {
-    try {
-      await apiFacade.acceptProposal(proposalId);
-      loadProject();
-    } catch (err: any) {
-      alert(err.message);
     }
   }
 
@@ -87,8 +83,8 @@ export default function ProjectDetailPage() {
     try {
       await apiFacade.completeProject(projectId);
       loadProject();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, 'Не удалось завершить проект'));
     }
   }
 
@@ -100,8 +96,8 @@ export default function ProjectDetailPage() {
     return <div className="text-center py-12">{factory.createText({ children: 'Проект не найден' })}</div>;
   }
 
-  const isOwner = user && user.id === project.customerId;
-  const isFreelancer = user && user.role === 'Freelancer';
+  const isOwner = Boolean(user && user.id === project.customerId);
+  const isFreelancer = Boolean(user && user.role === 'Freelancer');
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -242,52 +238,12 @@ export default function ProjectDetailPage() {
         </>
       )}
 
-      {/* Список откликов (для владельца) */}
-      {isOwner && proposals.length > 0 && (
-        <>
-          <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-            Отклики ({proposals.length})
-          </h2>
-          <div className="space-y-4">
-            {proposals.map((proposal) => (
-              <div key={proposal.id}>
-                {factory.createCard({
-                  className: 'mb-2',
-                  children: (
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{proposal.freelancerName}</p>
-                        {factory.createText({ children: proposal.coverLetter })}
-                        <p className="text-sm mt-2 text-gray-500">Ставка: ${proposal.bidAmount.toLocaleString()}</p>
-                      </div>
-                      {proposal.status === 'Pending' && project.status === 'Open' && (
-                        <div className="flex gap-2 ml-4">
-                          <Button variant="primary" onClick={() => handleAcceptProposal(proposal.id)}>
-                            Принять
-                          </Button>
-                          <Button variant="ghost" onClick={async () => {
-                            await apiFacade.rejectProposal(proposal.id);
-                            loadProject();
-                          }}>
-                            Отклонить
-                          </Button>
-                        </div>
-                      )}
-                      {proposal.status !== 'Pending' && (
-                        <span className={`text-sm font-medium ${
-                          proposal.status === 'Accepted' ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {proposal.status === 'Accepted' ? 'Принят' : 'Отклонён'}
-                        </span>
-                      )}
-                    </div>
-                  ),
-                })}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      <ProposalActions
+        project={project}
+        proposals={proposals}
+        isOwner={isOwner}
+        onRefresh={loadProject}
+      />
     </div>
   );
 }

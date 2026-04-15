@@ -1,18 +1,20 @@
 using FreelanceMarket.Application.Dtos;
 using FreelanceMarket.Domain.Enums;
+using FreelanceMarket.Domain.Patterns;
 
 namespace FreelanceMarket.Application.Services;
 
 public interface IProjectService
 {
-    Task<ProjectDto?> GetByIdAsync(Guid id);
+    Task<ProjectDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<ProjectDto>> GetAllAsync(ProjectStatus? status = null, decimal? maxBudget = null);
-    Task<IReadOnlyList<ProjectDto>> GetByCustomerIdAsync(Guid customerId);
-    Task<IReadOnlyList<ProjectDto>> GetByFreelancerIdAsync(Guid freelancerId);
-    Task<ProjectDto> CreateAsync(CreateProjectRequest request, Guid customerId);
-    Task<ProjectDto> CreateFromTemplateAsync(string templateId, Guid customerId);
-    Task<ProjectDto> UpdateAsync(Guid projectId, UpdateProjectRequest request, Guid customerId);
-    Task AssignFreelancerAsync(Guid projectId, Guid freelancerId, Guid customerId);
-    Task CompleteAsync(Guid projectId, Guid userId);
-    Task DeleteAsync(Guid projectId, Guid customerId);
+    Task<IReadOnlyList<ProjectDto>> GetAllAsync(ProjectSearchParams parameters, CancellationToken ct = default);
+    Task<IReadOnlyList<ProjectDto>> GetByCustomerIdAsync(Guid customerId, CancellationToken ct = default);
+    Task<IReadOnlyList<ProjectDto>> GetByFreelancerIdAsync(Guid freelancerId, CancellationToken ct = default);
+    Task<ProjectDto> CreateAsync(CreateProjectRequest request, Guid customerId, CancellationToken ct = default);
+    Task<ProjectDto> CreateFromTemplateAsync(string templateId, Guid customerId, CancellationToken ct = default);
+    Task<ProjectDto> UpdateAsync(Guid projectId, UpdateProjectRequest request, Guid customerId, CancellationToken ct = default);
+    Task AssignFreelancerAsync(Guid projectId, Guid freelancerId, Guid customerId, CancellationToken ct = default);
+    Task CompleteAsync(Guid projectId, Guid userId, CancellationToken ct = default);
+    Task DeleteAsync(Guid projectId, Guid customerId, CancellationToken ct = default);
 }

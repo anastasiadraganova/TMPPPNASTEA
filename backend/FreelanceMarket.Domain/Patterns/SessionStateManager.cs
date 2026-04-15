@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using FreelanceMarket.Domain.Enums;
 
 namespace FreelanceMarket.Domain.Patterns;
 
@@ -27,6 +28,7 @@ public sealed class SessionStateManager
     public static SessionStateManager Instance => _instance.Value;
 
     private readonly ConcurrentDictionary<Guid, UserSession> _sessions = new();
+    private readonly ConcurrentDictionary<Guid, ProjectStatus> _projectStatuses = new();
 
     // Приватный конструктор — паттерн Singleton запрещает внешнее создание.
     private SessionStateManager() { }
@@ -54,6 +56,28 @@ public sealed class SessionStateManager
 
     public IReadOnlyCollection<Guid> GetOnlineUserIds() =>
         _sessions.Keys.ToList().AsReadOnly();
+
+    /// <summary>
+    /// Updates a cached project status snapshot in the in-memory session state.
+    /// </summary>
+    /// <param name="projectId">Project identifier.</param>
+    /// <param name="status">Current project status.</param>
+    public void UpdateActiveProjectStatus(Guid projectId, ProjectStatus status)
+    {
+        _projectStatuses.AddOrUpdate(projectId, status, (_, _) => status);
+    }
+
+    /// <summary>
+    /// Gets a cached project status snapshot when present.
+    /// </summary>
+    /// <param name="projectId">Project identifier.</param>
+    /// <returns>Cached project status or null if not tracked.</returns>
+    public ProjectStatus? GetActiveProjectStatus(Guid projectId)
+    {
+        return _projectStatuses.TryGetValue(projectId, out var status)
+            ? status
+            : null;
+    }
 }
 
 public record UserSession(Guid UserId, string Token, DateTime LoggedInAt = default)

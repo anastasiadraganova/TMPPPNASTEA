@@ -73,6 +73,28 @@ export interface ProjectCategoryNode {
   children: ProjectCategoryNode[];
 }
 
+export interface ProjectSearchFilters {
+  status?: ProjectStatus;
+  maxBudget?: number;
+  minBudget?: number;
+  keyword?: string;
+  skills?: string[];
+  type?: ProjectType;
+  sortBy?: 'newest' | 'budget_asc' | 'budget_desc' | 'deadline';
+}
+
+export interface ProposalCommandResponse {
+  commandId: string;
+}
+
+export interface ProposalHistoryEntry {
+  commandId: string;
+  commandType: 'AcceptProposal' | 'RejectProposal' | string;
+  proposalId: string;
+  executedByUserId: string;
+  executedAt: string;
+}
+
 // ─── Requests ───
 export interface RegisterRequest {
   email: string;

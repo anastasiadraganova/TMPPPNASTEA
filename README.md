@@ -4,6 +4,8 @@
 
 Проект демонстрирует применение паттернов проектирования: **Singleton, Prototype, Builder + Director, Factory Method, Abstract Factory**, а также структурные паттерны **Facade, Adapter, Decorator, Composite**.
 
+В текущей итерации дополнительно реализованы поведенческие паттерны: **Observer, Strategy, Command**.
+
 ---
 
 ## 📁 Структура проекта
@@ -80,8 +82,9 @@ FreelanceMarket/
 | GET | `/api/users/{id}` | Профиль пользователя |
 | GET | `/api/users/{id}/reviews` | Отзывы о пользователе |
 | GET | `/api/users/{id}/portfolio` | Публичное портфолио фрилансера (через адаптер внешнего профиля) |
-| GET | `/api/projects` | Список проектов (фильтрация: status, maxBudget) |
+| GET | `/api/projects` | Расширенный поиск проектов (status, minBudget, maxBudget, keyword, skills, type, sortBy) |
 | GET | `/api/projects/categories/tree` | Дерево категорий проектов |
+| GET | `/api/projects/audit-log` | Журнал смен статусов проектов (только Admin) |
 | GET | `/api/projects/{id}` | Детали проекта |
 | POST | `/api/projects` | Создание проекта (Builder + Director) |
 | POST | `/api/projects/from-template` | Создание из шаблона (Prototype) |
@@ -93,6 +96,8 @@ FreelanceMarket/
 | POST | `/api/projects/{projectId}/proposals` | Создать отклик |
 | PATCH | `/api/proposals/{id}/accept` | Принять отклик |
 | PATCH | `/api/proposals/{id}/reject` | Отклонить отклик |
+| DELETE | `/api/proposals/commands/{commandId}` | Отменить последнее действие по отклику (Undo) |
+| GET | `/api/projects/{projectId}/proposal-history` | История действий по откликам проекта |
 | POST | `/api/reviews` | Оставить отзыв |
 
 ---
@@ -193,6 +198,72 @@ FreelanceMarket/
 **Назначение:** единый интерфейс узла (`IProjectCategoryNode`) позволяет работать с листьями и составными категориями одинаково. На фронтенде дерево отображается рекурсивным компонентом.
 
 **Где используется:** endpoint `GET /api/projects/categories/tree`; главная страница загружает и рендерит иерархию категорий.
+
+### 11. Observer — реакция на смену статуса проекта (Backend)
+
+**Файлы:**
+- `backend/FreelanceMarket.Domain/Patterns/IProjectObserver.cs`
+- `backend/FreelanceMarket.Domain/Patterns/IProjectStatusSubject.cs`
+- `backend/FreelanceMarket.Domain/Patterns/ProjectStatusPublisher.cs`
+- `backend/FreelanceMarket.Application/Services/Observers/NotificationObserver.cs`
+- `backend/FreelanceMarket.Application/Services/Observers/SessionSyncObserver.cs`
+- `backend/FreelanceMarket.Application/Services/Observers/AuditLogObserver.cs`
+
+**Назначение:** при смене статуса проекта (например, Open → InProgress → Completed/Cancelled) система централизованно уведомляет подписчиков: синхронизирует snapshot в `SessionStateManager`, формирует уведомления и пишет аудит переходов.
+
+**Где используется:** `ProjectService` публикует события через `IProjectStatusSubject`; endpoint `GET /api/projects/audit-log` возвращает журнал изменений для администратора.
+
+### 12. Strategy — гибкий поиск и сортировка проектов (Backend + Frontend)
+
+**Файлы:**
+- `backend/FreelanceMarket.Domain/Patterns/IProjectFilterStrategy.cs`
+- `backend/FreelanceMarket.Domain/Patterns/ProjectSearchParams.cs`
+- `backend/FreelanceMarket.Application/Services/ProjectFilterContext.cs`
+- `backend/FreelanceMarket.Application/Services/Strategies/StatusFilterStrategy.cs`
+- `backend/FreelanceMarket.Application/Services/Strategies/BudgetRangeFilterStrategy.cs`
+- `backend/FreelanceMarket.Application/Services/Strategies/KeywordSearchStrategy.cs`
+- `backend/FreelanceMarket.Application/Services/Strategies/SkillsFilterStrategy.cs`
+- `backend/FreelanceMarket.Application/Services/Strategies/ProjectSortStrategy.cs`
+- `frontend/src/components/ProjectFilters.tsx`
+
+**Назначение:** каждая стратегия отвечает за отдельный алгоритм фильтрации/сортировки (статус, бюджет, ключевое слово, навыки, сортировка), что упрощает расширение поиска без усложнения `ProjectService`.
+
+**Где используется:** endpoint `GET /api/projects` принимает расширенные query-параметры; на главной странице фильтры синхронизируются с URL и поддерживают debounce для keyword-поиска.
+
+### 13. Command — действия с откликами, Undo и история (Backend + Frontend)
+
+**Файлы:**
+- `backend/FreelanceMarket.Domain/Patterns/IProposalCommand.cs`
+- `backend/FreelanceMarket.Domain/Patterns/ProposalCommandBase.cs`
+- `backend/FreelanceMarket.Application/Services/Commands/AcceptProposalCommand.cs`
+- `backend/FreelanceMarket.Application/Services/Commands/RejectProposalCommand.cs`
+- `backend/FreelanceMarket.Application/Services/ProposalCommandInvoker.cs`
+- `frontend/src/components/ProposalActions.tsx`
+
+**Назначение:** операции принятия/отклонения отклика инкапсулированы в команды с единым invoker-слоем, историей выполнения и возможностью отмены последнего действия в ограниченное время.
+
+**Где используется:** endpoints `PATCH /api/proposals/{id}/accept`, `PATCH /api/proposals/{id}/reject` возвращают `commandId`; endpoint `DELETE /api/proposals/commands/{commandId}` выполняет Undo; endpoint `GET /api/projects/{projectId}/proposal-history` отдаёт activity log.
+
+---
+
+## ✅ Что было сделано в этой итерации
+
+### Backend
+- Добавлен Observer-пайплайн для смен статусов проекта с DI-подпиской наблюдателей при старте приложения.
+- Расширен `SessionStateManager`: добавлено in-memory отслеживание текущего статуса проектов.
+- Введены Strategy-фильтры и `ProjectFilterContext`; поиск проектов переведён на композицию стратегий.
+- Реализован Command-слой для действий по откликам (accept/reject), включая историю команд и Undo.
+- Добавлены новые API endpoints: аудит статусов проектов, undo-команды откликов, история действий по откликам.
+
+### Frontend
+- Добавлена панель фильтров проектов (`ProjectFilters`) с debounce-поиском и синхронизацией query string.
+- Обновлён facade/API-клиент для новых параметров фильтрации и командных endpoints.
+- Добавлен компонент `ProposalActions`: принятие/отклонение, Undo в течение 60 секунд и секция «Активность».
+
+### Инфраструктурные доработки
+- Обновлена регистрация сервисов в `Program.cs` для Observer/Strategy/Command.
+- Для слоя Application добавлен пакет `Microsoft.Extensions.DependencyInjection.Abstractions`.
+- Проверена сборка backend и production-сборка frontend.
 
 ---
 

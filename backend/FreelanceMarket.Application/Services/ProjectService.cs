@@ -10,6 +10,8 @@ public class ProjectService : IProjectService
 {
     private readonly IProjectRepository _projectRepo;
     private readonly IUserRepository _userRepo;
+    private readonly ProjectFilterContext _filterContext;
+    private readonly IProjectStatusSubject _publisher;
 
     /// <summary>
     /// Паттерн Director — используется в сервисе для упрощённого создания проектов
@@ -54,39 +56,79 @@ public class ProjectService : IProjectService
         }
     };
 
-    public ProjectService(IProjectRepository projectRepo, IUserRepository userRepo)
+    public ProjectService(
+        IProjectRepository projectRepo,
+        IUserRepository userRepo,
+        ProjectFilterContext filterContext,
+        IProjectStatusSubject publisher)
     {
         _projectRepo = projectRepo;
         _userRepo = userRepo;
+        _filterContext = filterContext;
+        _publisher = publisher;
     }
 
-    public async Task<ProjectDto?> GetByIdAsync(Guid id)
+    public async Task<ProjectDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
         var p = await _projectRepo.GetByIdAsync(id);
-        return p is null ? null : await ToDtoAsync(p);
+        return p is null ? null : await ToDtoAsync(p, ct);
     }
 
     public async Task<IReadOnlyList<ProjectDto>> GetAllAsync(ProjectStatus? status, decimal? maxBudget)
     {
-        var projects = await _projectRepo.GetAllAsync(status, maxBudget);
+        var searchParams = new ProjectSearchParams(
+            status,
+            maxBudget,
+            null,
+            null,
+            null,
+            null,
+            "newest");
+
+        return await GetAllAsync(searchParams);
+    }
+
+    public async Task<IReadOnlyList<ProjectDto>> GetAllAsync(ProjectSearchParams parameters, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var projects = await _projectRepo.GetAllAsync();
+        var query = _filterContext.ApplyAll(projects.AsQueryable(), parameters);
+
         var dtos = new List<ProjectDto>();
-        foreach (var p in projects) dtos.Add(await ToDtoAsync(p));
+        foreach (var p in query)
+        {
+            dtos.Add(await ToDtoAsync(p, ct));
+        }
+
         return dtos;
     }
 
-    public async Task<IReadOnlyList<ProjectDto>> GetByCustomerIdAsync(Guid customerId)
+    public async Task<IReadOnlyList<ProjectDto>> GetByCustomerIdAsync(Guid customerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var projects = await _projectRepo.GetByCustomerIdAsync(customerId);
         var dtos = new List<ProjectDto>();
-        foreach (var p in projects) dtos.Add(await ToDtoAsync(p));
+        foreach (var p in projects)
+        {
+            dtos.Add(await ToDtoAsync(p, ct));
+        }
+
         return dtos;
     }
 
-    public async Task<IReadOnlyList<ProjectDto>> GetByFreelancerIdAsync(Guid freelancerId)
+    public async Task<IReadOnlyList<ProjectDto>> GetByFreelancerIdAsync(Guid freelancerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var projects = await _projectRepo.GetByFreelancerIdAsync(freelancerId);
         var dtos = new List<ProjectDto>();
-        foreach (var p in projects) dtos.Add(await ToDtoAsync(p));
+        foreach (var p in projects)
+        {
+            dtos.Add(await ToDtoAsync(p, ct));
+        }
+
         return dtos;
     }
 
@@ -94,8 +136,10 @@ public class ProjectService : IProjectService
     /// Создание проекта через Builder + Director (паттерн).
     /// Director выбирает нужный Builder в зависимости от типа проекта.
     /// </summary>
-    public async Task<ProjectDto> CreateAsync(CreateProjectRequest req, Guid customerId)
+    public async Task<ProjectDto> CreateAsync(CreateProjectRequest req, Guid customerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var project = req.Type switch
         {
             ProjectType.FixedPrice => _director.BuildFixedPriceProject(
@@ -112,14 +156,16 @@ public class ProjectService : IProjectService
         };
 
         await _projectRepo.AddAsync(project);
-        return await ToDtoAsync(project);
+        return await ToDtoAsync(project, ct);
     }
 
     /// <summary>
     /// Паттерн Prototype: создание проекта из шаблона через Clone().
     /// </summary>
-    public async Task<ProjectDto> CreateFromTemplateAsync(string templateId, Guid customerId)
+    public async Task<ProjectDto> CreateFromTemplateAsync(string templateId, Guid customerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         if (!Templates.TryGetValue(templateId, out var template))
             throw new KeyNotFoundException($"Шаблон «{templateId}» не найден");
 
@@ -128,11 +174,13 @@ public class ProjectService : IProjectService
         project.CustomerId = customerId;
 
         await _projectRepo.AddAsync(project);
-        return await ToDtoAsync(project);
+        return await ToDtoAsync(project, ct);
     }
 
-    public async Task<ProjectDto> UpdateAsync(Guid projectId, UpdateProjectRequest req, Guid customerId)
+    public async Task<ProjectDto> UpdateAsync(Guid projectId, UpdateProjectRequest req, Guid customerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException("Проект не найден");
 
@@ -147,51 +195,100 @@ public class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
-        return await ToDtoAsync(project);
+        return await ToDtoAsync(project, ct);
     }
 
-    public async Task AssignFreelancerAsync(Guid projectId, Guid freelancerId, Guid customerId)
+    public async Task AssignFreelancerAsync(
+        Guid projectId,
+        Guid freelancerId,
+        Guid customerId,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException("Проект не найден");
 
         if (project.CustomerId != customerId)
             throw new UnauthorizedAccessException("Вы не являетесь владельцем проекта");
 
+        var oldStatus = project.Status;
         project.FreelancerId = freelancerId;
         project.Status = ProjectStatus.InProgress;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
+
+        if (oldStatus != project.Status)
+        {
+            await _publisher.NotifyObserversAsync(
+                project.Id,
+                oldStatus,
+                project.Status,
+                customerId,
+                ct);
+        }
     }
 
-    public async Task CompleteAsync(Guid projectId, Guid userId)
+    public async Task CompleteAsync(Guid projectId, Guid userId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException("Проект не найден");
 
         if (project.CustomerId != userId && project.FreelancerId != userId)
             throw new UnauthorizedAccessException("Нет доступа");
 
+        var oldStatus = project.Status;
         project.Status = ProjectStatus.Completed;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projectRepo.UpdateAsync(project);
+
+        if (oldStatus != project.Status)
+        {
+            await _publisher.NotifyObserversAsync(
+                project.Id,
+                oldStatus,
+                project.Status,
+                userId,
+                ct);
+        }
     }
 
-    public async Task DeleteAsync(Guid projectId, Guid customerId)
+    public async Task DeleteAsync(Guid projectId, Guid customerId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var project = await _projectRepo.GetByIdAsync(projectId)
             ?? throw new KeyNotFoundException("Проект не найден");
 
         if (project.CustomerId != customerId)
             throw new UnauthorizedAccessException("Вы не являетесь владельцем проекта");
 
+        if (project.Status == ProjectStatus.InProgress)
+        {
+            var oldStatus = project.Status;
+            project.Status = ProjectStatus.Cancelled;
+            project.UpdatedAt = DateTime.UtcNow;
+
+            await _projectRepo.UpdateAsync(project);
+            await _publisher.NotifyObserversAsync(
+                project.Id,
+                oldStatus,
+                project.Status,
+                customerId,
+                ct);
+        }
+
         await _projectRepo.DeleteAsync(projectId);
     }
 
-    private async Task<ProjectDto> ToDtoAsync(Project p)
+    private async Task<ProjectDto> ToDtoAsync(Project p, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+
         var customer = await _userRepo.GetByIdAsync(p.CustomerId);
         var freelancer = p.FreelancerId.HasValue
             ? await _userRepo.GetByIdAsync(p.FreelancerId.Value)

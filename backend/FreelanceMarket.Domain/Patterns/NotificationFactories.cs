@@ -65,6 +65,23 @@ public class ProjectCompletedNotificationFactory : INotificationFactory
         new ProjectCompletedNotification(_userId, _projectId, _projectTitle);
 }
 
+public class ProjectCancelledNotificationFactory : INotificationFactory
+{
+    private readonly Guid _userId;
+    private readonly Guid _projectId;
+    private readonly string _projectTitle;
+
+    public ProjectCancelledNotificationFactory(Guid userId, Guid projectId, string projectTitle)
+    {
+        _userId = userId;
+        _projectId = projectId;
+        _projectTitle = projectTitle;
+    }
+
+    public Notification CreateNotification() =>
+        new ProjectCancelledNotification(_userId, _projectId, _projectTitle);
+}
+
 public class ReviewReceivedNotificationFactory : INotificationFactory
 {
     private readonly Guid _userId;

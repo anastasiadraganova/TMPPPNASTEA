@@ -7,7 +7,10 @@ import {
   LoginRequest,
   ProjectCategoryNode,
   ProjectDto,
+  ProjectSearchFilters,
   ProposalDto,
+  ProposalCommandResponse,
+  ProposalHistoryEntry,
   RegisterRequest,
   ReviewDto,
   UpdateProjectRequest,
@@ -80,10 +83,16 @@ class ApiClient {
   }
 
   // Projects
-  getProjects(status?: string, maxBudget?: number) {
+  getProjects(filters: ProjectSearchFilters = {}) {
     const params = new URLSearchParams();
-    if (status) params.set('status', status);
-    if (maxBudget) params.set('maxBudget', maxBudget.toString());
+    if (filters.status) params.set('status', filters.status);
+    if (typeof filters.maxBudget === 'number') params.set('maxBudget', filters.maxBudget.toString());
+    if (typeof filters.minBudget === 'number') params.set('minBudget', filters.minBudget.toString());
+    if (filters.keyword) params.set('keyword', filters.keyword);
+    if (filters.skills && filters.skills.length > 0) params.set('skills', filters.skills.join(','));
+    if (filters.type) params.set('type', filters.type);
+    if (filters.sortBy) params.set('sortBy', filters.sortBy);
+
     const qs = params.toString();
     return this.request<ProjectDto[]>(`/api/projects${qs ? `?${qs}` : ''}`);
   }
@@ -149,11 +158,19 @@ class ApiClient {
   }
 
   acceptProposal(id: string) {
-    return this.request<void>(`/api/proposals/${id}/accept`, { method: 'PATCH' });
+    return this.request<ProposalCommandResponse>(`/api/proposals/${id}/accept`, { method: 'PATCH' });
   }
 
   rejectProposal(id: string) {
-    return this.request<void>(`/api/proposals/${id}/reject`, { method: 'PATCH' });
+    return this.request<ProposalCommandResponse>(`/api/proposals/${id}/reject`, { method: 'PATCH' });
+  }
+
+  undoProposalCommand(commandId: string) {
+    return this.request<void>(`/api/proposals/commands/${commandId}`, { method: 'DELETE' });
+  }
+
+  getProposalHistory(projectId: string) {
+    return this.request<ProposalHistoryEntry[]>(`/api/projects/${projectId}/proposal-history`);
   }
 
   // Reviews

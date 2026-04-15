@@ -9,5 +9,6 @@ public enum NotificationType
     ProposalAccepted,
     ProposalRejected,
     ProjectCompleted,
+    ProjectCancelled,
     ReviewReceived
 }

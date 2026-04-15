@@ -2,7 +2,10 @@ using FluentValidation;
 using FreelanceMarket.Api.Extensions;
 using FreelanceMarket.Application.Dtos;
 using FreelanceMarket.Application.Services;
+using FreelanceMarket.Application.Services.Observers;
 using FreelanceMarket.Domain.Enums;
+using FreelanceMarket.Domain.Patterns;
+using Microsoft.AspNetCore.Authorization;
 
 namespace FreelanceMarket.Api.Endpoints;
 
@@ -20,11 +23,64 @@ public static class ProjectEndpoints
         });
 
         // GET /api/projects — список проектов (публичный)
-        group.MapGet("/", async (ProjectStatus? status, decimal? maxBudget, IProjectService svc) =>
+        group.MapGet("/", async (
+            ProjectStatus? status,
+            decimal? maxBudget,
+            decimal? minBudget,
+            string? keyword,
+            string? skills,
+            ProjectType? type,
+            string? sortBy,
+            IProjectService svc,
+            CancellationToken ct) =>
         {
-            var projects = await svc.GetAllAsync(status, maxBudget);
+            if (minBudget.HasValue && maxBudget.HasValue && minBudget > maxBudget)
+            {
+                return Results.BadRequest(new ApiError("Validation", "minBudget не может быть больше maxBudget"));
+            }
+
+            var normalizedSort = string.IsNullOrWhiteSpace(sortBy)
+                ? "newest"
+                : sortBy.Trim().ToLowerInvariant();
+
+            var allowedSort = new[] { "newest", "budget_asc", "budget_desc", "deadline" };
+            if (!allowedSort.Contains(normalizedSort, StringComparer.Ordinal))
+            {
+                return Results.BadRequest(new ApiError("Validation", "sortBy должен быть одним из: newest, budget_asc, budget_desc, deadline"));
+            }
+
+            var requiredSkills = string.IsNullOrWhiteSpace(skills)
+                ? null
+                : skills
+                    .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+            var parameters = new ProjectSearchParams(
+                status,
+                maxBudget,
+                minBudget,
+                keyword,
+                requiredSkills,
+                type,
+                normalizedSort);
+
+            var projects = await svc.GetAllAsync(parameters, ct);
             return Results.Ok(projects);
-        });
+        })
+        .WithName("GetProjects")
+        .WithSummary("Возвращает список проектов с фильтрацией и сортировкой")
+        .WithTags("Projects");
+
+        // GET /api/projects/audit-log — журнал смен статусов (только администратор)
+        group.MapGet("/audit-log", (AuditLogObserver observer) =>
+        {
+            return Results.Ok(observer.GetLog());
+        })
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" })
+        .WithName("GetProjectAuditLog")
+        .WithSummary("Возвращает журнал смен статусов проектов")
+        .WithTags("Projects");
 
         // GET /api/projects/{id}
         group.MapGet("/{id:guid}", async (Guid id, IProjectService svc) =>

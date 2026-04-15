@@ -1,37 +1,103 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ProjectCategoryNode, ProjectDto } from '@/types';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { ReadonlyURLSearchParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { ProjectCategoryNode, ProjectDto, ProjectSearchFilters, ProjectStatus, ProjectType } from '@/types';
 import { apiFacade } from '@/lib/apiFacade';
 import { ProjectCard } from '@/components/ProjectCard';
 import { useThemeFactory } from '@/patterns/ThemeAbstractFactory';
-import { Button } from '@/patterns/ButtonFactory';
 import { CategoryTree } from '@/components/CategoryTree';
 import { withPopularBadge, withUrgentHighlight } from '@/components/decorators/ProjectCardDecorators';
+import { ProjectFilters } from '@/components/ProjectFilters';
 
 const EnhancedProjectCard = withPopularBadge(withUrgentHighlight(ProjectCard));
+
+const statusValues = new Set<ProjectStatus>(['Open', 'InProgress', 'Completed', 'Cancelled']);
+const typeValues = new Set<ProjectType>(['FixedPrice', 'Hourly', 'LongTerm']);
+type SortByValue = NonNullable<ProjectSearchFilters['sortBy']>;
+const sortValues = new Set<SortByValue>(['newest', 'budget_asc', 'budget_desc', 'deadline']);
+
+function parseNumber(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseFilters(params: ReadonlyURLSearchParams): ProjectSearchFilters {
+  const statusParam = params.get('status');
+  const typeParam = params.get('type');
+  const sortByParam = params.get('sortBy');
+  const keywordParam = params.get('keyword')?.trim();
+  const skillsParam = params.get('skills');
+
+  const status = statusParam && statusValues.has(statusParam as ProjectStatus)
+    ? (statusParam as ProjectStatus)
+    : undefined;
+
+  const type = typeParam && typeValues.has(typeParam as ProjectType)
+    ? (typeParam as ProjectType)
+    : undefined;
+
+  const sortBy = sortByParam && sortValues.has(sortByParam as SortByValue)
+    ? (sortByParam as SortByValue)
+    : 'newest';
+
+  const skills = skillsParam
+    ? skillsParam
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : undefined;
+
+  return {
+    status,
+    maxBudget: parseNumber(params.get('maxBudget')),
+    minBudget: parseNumber(params.get('minBudget')),
+    keyword: keywordParam || undefined,
+    skills,
+    type,
+    sortBy,
+  };
+}
+
+function toQueryString(filters: ProjectSearchFilters): string {
+  const params = new URLSearchParams();
+  if (filters.status) params.set('status', filters.status);
+  if (typeof filters.maxBudget === 'number') params.set('maxBudget', filters.maxBudget.toString());
+  if (typeof filters.minBudget === 'number') params.set('minBudget', filters.minBudget.toString());
+  if (filters.keyword) params.set('keyword', filters.keyword);
+  if (filters.skills && filters.skills.length > 0) params.set('skills', filters.skills.join(','));
+  if (filters.type) params.set('type', filters.type);
+  if (filters.sortBy && filters.sortBy !== 'newest') params.set('sortBy', filters.sortBy);
+  return params.toString();
+}
 
 /**
  * Главная страница — каталог открытых проектов.
  * Использует Abstract Factory (ThemeFactory) для создания тематизированных компонентов.
  * Использует Factory Method (ButtonFactory) для кнопок фильтрации.
  */
-export default function HomePage() {
+function HomePageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [categories, setCategories] = useState<ProjectCategoryNode[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+
+  const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
   const factory = useThemeFactory();
 
   useEffect(() => {
-    loadProjects();
-  }, [statusFilter]);
+    loadProjects(filters);
+  }, [filters]);
 
-  async function loadProjects() {
+  async function loadProjects(activeFilters: ProjectSearchFilters) {
     setLoading(true);
     try {
       const [projectsData, categoriesData] = await Promise.all([
-        apiFacade.getProjects(statusFilter || undefined),
+        apiFacade.getProjects(activeFilters),
         apiFacade.getProjectCategoriesTree(),
       ]);
 
@@ -44,42 +110,22 @@ export default function HomePage() {
     }
   }
 
+  function handleFiltersChange(nextFilters: ProjectSearchFilters) {
+    const queryString = toQueryString(nextFilters);
+    router.push(queryString ? `${pathname}?${queryString}` : pathname);
+  }
+
   return (
     <div>
       <CategoryTree nodes={categories} />
 
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
           Открытые проекты
         </h1>
-        <div className="flex gap-2">
-          {/* Factory Method: кнопки фильтрации создаются через фабрику */}
-          <Button
-            variant={statusFilter === '' ? 'primary' : 'ghost'}
-            onClick={() => setStatusFilter('')}
-          >
-            Все
-          </Button>
-          <Button
-            variant={statusFilter === 'Open' ? 'primary' : 'ghost'}
-            onClick={() => setStatusFilter('Open')}
-          >
-            Открытые
-          </Button>
-          <Button
-            variant={statusFilter === 'InProgress' ? 'primary' : 'ghost'}
-            onClick={() => setStatusFilter('InProgress')}
-          >
-            В работе
-          </Button>
-          <Button
-            variant={statusFilter === 'Completed' ? 'primary' : 'ghost'}
-            onClick={() => setStatusFilter('Completed')}
-          >
-            Завершённые
-          </Button>
-        </div>
       </div>
+
+      <ProjectFilters filters={filters} onChange={handleFiltersChange} />
 
       {loading ? (
         <div className="text-center py-12">
@@ -106,5 +152,13 @@ export default function HomePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="py-12 text-center text-gray-500 dark:text-gray-400">Загрузка...</div>}>
+      <HomePageContent />
+    </Suspense>
   );
 }
